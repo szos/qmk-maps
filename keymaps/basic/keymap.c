@@ -1,0 +1,415 @@
+#include QMK_KEYBOARD_H
+
+extern keymap_config_t keymap_config;
+
+#define _QWERTY 0
+#define _SYMS 1
+#define _RAISE 2
+#define _APL 3
+#define _APL_SHIFT 4
+#define _LISP 5
+
+#define QWERT TG(_SYMS)
+#define SYMBOLS TG(_SYMS)
+#define RAISE MO(_RAISE)
+#define APL TG(_APL)
+
+void matrix_init_user(void) {
+  set_unicode_input_mode(UC_LNX);
+};
+
+void process_unicode_key(int key,int shift_key, keyrecord_t *record)
+{
+  if (get_mods() == MOD_BIT(KC_LSHIFT) || get_mods() == MOD_BIT(KC_RSHIFT)) {
+    process_unicode((shift_key|QK_UNICODE), record);
+    return;
+  }
+  process_unicode((key|QK_UNICODE), record);
+  return;
+}
+
+void process_1_unicode_key(int key, keyrecord_t *record)
+{
+  process_unicode((key|QK_UNICODE), record);
+  return;
+}
+
+typedef struct {
+  bool is_press_action;
+  int state;
+} tap;
+
+enum {
+//single S, double D, triple T, etc      
+  S_TAP = 1,
+  S_HOLD = 2,
+  D_TAP = 3,
+  D_HOLD = 4,
+  D_S_TAP = 5,
+  T_TAP = 6,
+  T_HOLD = 7
+};
+
+enum {
+      TAB_SHIFT_PFIX = 0,
+      DANCE_2,
+      LALT_PP,
+      LA_PC,
+      LCTL_BSPC
+};
+
+int cur_dance(qk_tap_dance_state_t *state);
+void x_finished(qk_tap_dance_state_t *state, void *user_data);
+void x_reset(qk_tap_dance_state_t *state, void *user_data);
+
+int cur_dance(qk_tap_dance_state_t *state) {
+  if (state->count == 1){
+    if (state->interrupted || !state->pressed)
+      return S_TAP;
+    else return S_HOLD;
+  } else if (state->count == 2) {
+    if (state->interrupted) return D_S_TAP;
+    else if (state->pressed) return D_HOLD;
+    else return D_TAP;
+  }
+  if (state->count == 3){
+    if (state->interrupted || !state->pressed) return T_TAP;
+    else return T_HOLD;
+  }
+  else return 8; // magic number, when doing more presses, dont use 8.
+}
+
+static tap xtap_state = {
+  .is_press_action = true,
+  .state = 0
+};
+
+void lctl_bsp_finished(qk_tap_dance_state_t *state, void *user_data) {
+  xtap_state.state = cur_dance(state);
+  switch (xtap_state.state) {
+  case S_TAP: register_code(KC_BSPC); break;
+  case S_HOLD: register_code(KC_LCTL); break;
+  case D_HOLD: register_code(KC_BSPC);
+  }
+}
+
+void lctl_bsp_reset(qk_tap_dance_state_t *state, void *user_data) {
+  switch (xtap_state.state) {
+  case S_TAP: unregister_code(KC_BSPC); break;
+  case S_HOLD: unregister_code(KC_LCTL); break;
+  case D_HOLD: unregister_code(KC_BSPC);
+  }
+  xtap_state.state = 0;
+}
+
+void po_finished(qk_tap_dance_state_t *state, void *user_data) {
+  xtap_state.state = cur_dance(state);
+  switch (xtap_state.state) {
+  case S_TAP: register_code16(LSFT(KC_8)); break;
+  case S_HOLD: register_code(KC_LALT); break;
+  case D_TAP: register_code16(LALT(KC_SPC)); break;
+  case D_HOLD: register_code16(LSFT(KC_8));
+  }
+}
+
+void po_reset(qk_tap_dance_state_t *state, void *user_data) {
+  switch (xtap_state.state) {
+  case S_TAP: unregister_code16(LSFT(KC_8)); break;
+  case S_HOLD: unregister_code(KC_LALT); break;
+  case D_TAP: unregister_code16(LALT(KC_SPC)); break;
+  case D_HOLD: unregister_code16(LSFT(KC_8)); 
+  }
+  xtap_state.state = 0;
+}
+
+void pc_finished(qk_tap_dance_state_t *state, void *user_data) {
+  xtap_state.state = cur_dance(state);
+  switch (xtap_state.state) {
+  case S_TAP: register_code16(LSFT(KC_9)); break;
+  case S_HOLD: register_code(KC_LALT); break;
+  case D_TAP: register_code16(LALT(KC_SPC)); break;
+  case D_HOLD: register_code16(LSFT(KC_9));
+  }
+}
+
+void pc_reset(qk_tap_dance_state_t *state, void *user_data) {
+  switch (xtap_state.state) {
+  case S_TAP: unregister_code16(LSFT(KC_9)); break;
+  case S_HOLD: unregister_code(KC_LALT); break;
+  case D_TAP: unregister_code16(LALT(KC_SPC)); break;
+  case D_HOLD: unregister_code16(LSFT(KC_9)); 
+  }
+  xtap_state.state = 0;
+}
+
+void x_finished (qk_tap_dance_state_t *state, void *user_data) {
+  /* example of sending x on a single tap, LCTL on a tap and hold, 
+     ESC on double tap, LALT on double tap and hold, and double taps 
+     x if you double tap and dont hold. 
+   */
+  xtap_state.state = cur_dance(state);
+  switch (xtap_state.state) {
+  case S_TAP: register_code(KC_X); break;
+  case S_HOLD: register_code(KC_LCTRL); break;
+  case D_TAP: register_code16(LSFT(KC_X)); break;
+  case D_HOLD: register_code(KC_LALT); break;
+  case D_S_TAP: register_code(KC_X); unregister_code(KC_X); register_code(KC_X);
+    //Last case is for fast typing. Assuming your key is `f`:
+    //For example, when typing the word `buffer`, and you want to make sure that you send `ff` and not `Esc`.
+    //In order to type `ff` when typing fast, the next character will have to be hit within the `TAPPING_TERM`, which by default is 200ms.
+  }
+}
+
+void x_reset (qk_tap_dance_state_t *state, void *user_data) {
+  switch (xtap_state.state) {
+    case S_TAP: unregister_code(KC_X); break;
+    case S_HOLD: unregister_code(KC_LCTRL); break;
+    case D_TAP: unregister_code16(LSFT(KC_X)); break;
+    case D_HOLD: unregister_code(KC_LALT);
+    case D_S_TAP: unregister_code(KC_X);
+  }
+  xtap_state.state = 0;
+}
+
+qk_tap_dance_action_t tap_dance_actions[] = {
+  [DANCE_2] = ACTION_TAP_DANCE_FN_ADVANCED(NULL, x_finished, x_reset),
+  [LALT_PP] = ACTION_TAP_DANCE_FN_ADVANCED(NULL, po_finished, po_reset),
+  [LA_PC] = ACTION_TAP_DANCE_FN_ADVANCED(NULL, pc_finished, pc_reset), 
+  [LCTL_BSPC] = ACTION_TAP_DANCE_FN_ADVANCED(NULL, lctl_bsp_finished, lctl_bsp_reset)
+};
+
+enum my_keycodes {
+  TESTER = SAFE_RANGE,
+  // unicode keys
+  
+  APL_2,
+  APL_3,
+  APL_4,
+  APL_5,
+  APL_6,
+  APL_7,
+  APL_8,
+  APL_9,
+  APL_0,
+  APL_DSH,
+  APL_EQL,
+
+  APL_Q,
+  APL_W,
+  APL_E,
+  APL_R,
+  APL_T,
+  APL_Y,
+  APL_U,
+  APL_I,
+  APL_O,
+  APL_P,
+  APL_LBC,
+  APL_RBC,
+
+  APL_A,
+  APL_S,
+  APL_D,
+  APL_F,
+  APL_G,
+  APL_H,
+  APL_J,
+  APL_K,
+  APL_L,
+  APL_CLN,
+  APL_QOT, //apl symbols on quote
+  APL_QQT, //apl symbols on quasiquote
+
+  APL_LGS, //apl less greater sign
+  APL_Z,
+  APL_X,
+  APL_C,
+  APL_V,
+  APL_B,
+  APL_N,
+  APL_M,
+  APL_CMA,
+  APL_DOT,
+  APL_FSH,
+  
+  // regular keys
+  LPAREN,
+  RPAREN,
+  LSFT_PO,
+  RSFT_PC,
+  LALT_PO,
+  LALT_PC,
+  LSFT_BSP, /* swap bsp and tab on LSFT and LCTL */
+  LSFT_TAB,
+  LCTL_TAB,
+  LCTL_BSP,
+  RALT_DEL,
+  RALT_LBC,
+  RALT_RBC,
+  LGUI_LBK,
+  RGUI_RBK,
+  RCTL_ENT,
+  LS_TB_PX
+};
+
+void tap_key(uint16_t keycode){
+  register_code(keycode);
+  unregister_code(keycode);
+};
+
+bool process_record_user(uint16_t keycode, keyrecord_t *record){
+  switch(keycode) {
+  case TESTER:
+    if (record->event.pressed){
+      process_unicode((0x0028|QK_UNICODE), record);
+    } 
+    return false;
+        
+  case LSFT_PO:
+    perform_space_cadet(record, KC_LSFT, KC_LSFT, KC_8);
+    return false;
+  case RSFT_PC:
+    perform_space_cadet(record, KC_RSFT, KC_RSFT, KC_9);
+    return false;
+  case LALT_PO:
+    perform_space_cadet(record, KC_LALT, KC_LSFT, KC_8);
+    return false;
+  case LALT_PC:
+    perform_space_cadet(record, KC_LALT, KC_LSFT, KC_9);
+    return false;
+  case LSFT_BSP:
+    perform_space_cadet(record, KC_LSFT, KC_TRNS, KC_BSPC);
+    return false;
+  case LSFT_TAB:
+    perform_space_cadet(record, KC_LSFT, KC_TRNS, KC_TAB);
+    return false;
+  case LCTL_TAB:
+    perform_space_cadet(record, KC_LCTL, KC_TRNS, KC_TAB);
+    return false;
+  case LCTL_BSP:
+    perform_space_cadet(record, KC_LCTL, KC_TRNS, KC_BSPC);
+    return false;
+  case RALT_DEL:
+    perform_space_cadet(record, KC_RALT, KC_TRNS, KC_DEL);
+    return false;
+  case RALT_LBC:
+    perform_space_cadet(record, KC_RALT, KC_RALT, KC_7);
+    return false;
+  case RALT_RBC:
+    perform_space_cadet(record, KC_RALT, KC_RALT, KC_0);
+    return false;
+  case LGUI_LBK:
+    perform_space_cadet(record, KC_LGUI, KC_RALT, KC_8);
+    return false;
+  case RGUI_RBK:
+    perform_space_cadet(record, KC_RGUI, KC_RALT, KC_9);
+    return false;
+  case RCTL_ENT:
+    perform_space_cadet(record, KC_RCTL, KC_TRNS, KC_ENT);
+    return false;
+  case LS_TB_PX:
+    // perform_space_cadet(record, KC_LSFT, KC_TRNS, TAP_DANCE_1);
+    return false;
+  case LPAREN:
+    if (record->event.pressed){
+      process_unicode((0x0028|QK_UNICODE), record);
+    }
+    return false;
+  case RPAREN:
+    if (record->event.pressed){
+      process_unicode((0x0029|QK_UNICODE), record);
+      return true;
+    }
+    return false;
+  default:
+    return true;
+  }
+};
+
+#define RALT_RET RALT_T(KC_ENT)
+#define LALT_RET LALT_T(KC_ENT)
+#define F_SFT SFT_T(KC_F)
+#define J_SFT SFT_T(KC_J)
+#define SPC_CTL RCTL_T(KC_SPC)
+#define DEL_CTL LCTL_T(KC_DEL)
+#define SPC_SFT SFT_T(KC_SPC)
+
+// #define PC_CTL 
+
+#define RALT_PO RALT_T(KC_LPRN)
+#define RALT_PC RALT_T(KC_RPRN)
+#define RALT_TB RALT_T(KC_TAB)
+
+#define RCTL_RET RCTL_T(KC_ENT)
+#define RCTL_BKS RCTL_T(KC_BSPC)
+#define RSFT_SPC SFT_T(KC_SPC)
+#define LCTL_BKS LCTL_T(KC_BSPC)
+#define RALT_BKS RALT_T(KC_BSPC)
+#define LALT_BKS LALT_T(KC_BSPC)
+
+#define SFT_PO_U SFT_T(LPAREN)
+#define LCTL_PC_U LCTL_T(RPAREN)
+
+#define SFT_PO_U_L SFT_T(UC(0x3F))
+#define LCTL_PC_U_L LCTL_T(UC(0x2A))
+
+#define TB_SFT SFT_T(KC_TAB)
+#define BS_SFT SFT_T(KC_BSPC)
+
+#define D_LYR LT(_SYMS, KC_D)
+#define K_LYR LT(_SYMS, KC_K)
+
+// #define PERMISSIVE_HOLD
+
+#define TAPPING_TERM 70
+
+/*
+  ok we want to set up the right hand as, from the top of the thumb cluster down,
+  space/shift, enter/control, backspace/alt-meta. 
+  on the left hand we want, from top of thumb cluster down,
+  tap-dance shift/lparen/rparen, rparen/control, alt/enter, altgreen/tab
+ */
+
+const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
+
+  [_QWERTY] = LAYOUT_6x6(
+
+     KC_F1  , KC_F2 , KC_F3 , KC_F4 , KC_F5 , KC_F6 ,                         KC_F7 , KC_F8 , KC_F9 ,KC_F10 ,KC_F11 ,KC_F12 ,
+     KC_ESC , KC_1  , KC_2  , KC_3  , KC_4  , KC_5  ,                         KC_6  , KC_7  , KC_8  , KC_9  , KC_0  ,KC_BSLASH,
+     KC_GRV , KC_Q  , KC_W  , KC_E  , KC_R  , KC_T  ,                         KC_Y  , KC_U  , KC_I  , KC_O  , KC_P  ,KC_LBRACKET,
+     KC_TAB , KC_A  , KC_S  , KC_D  , KC_F  , KC_G  ,                         KC_H  , KC_J  , KC_K  , KC_L  ,KC_SCLN,KC_QUOT,
+     SYMBOLS, KC_Z  , KC_X  , KC_C  , KC_V  , KC_B  ,                         KC_N  , KC_M  ,KC_COMM,KC_DOT ,KC_SLSH,KC_RBRACKET,
+                      KC_LBRC,KC_RBRC,                                                       KC_MINS, KC_EQUAL,
+                                      LSFT_TAB,LCTL_BKS,                       RCTL_ENT,RSFT_SPC,
+//                                    LSFT_TAB,LCTL_BSP,                       RCTL_SPC,RSFT_ENT, 
+                                      RALT_LBC,LALT_PO,                        LALT_PC,RALT_RBC,
+                                      TESTER  ,LGUI_LBK,                       RGUI_RBK, SYMBOLS 
+  ),
+
+  [_SYMS] = LAYOUT_6x6(
+			
+     RESET  , KC_F2 , KC_F3 , KC_F4 , KC_F5 , KC_F6 ,                        KC_F7 , KC_F8 , KC_F9 ,KC_F10 ,KC_F11 , RESET ,
+     KC_TILD,KC_EXLM, KC_AT ,KC_HASH,KC_DLR ,KC_PERC,                        KC_CIRC,KC_AMPR,KC_ASTR,KC_LPRN,KC_RPRN,KC_DEL,
+     _______,_______,_______,KC_MS_U,_______,KC_LBRC,                        KC_RBRC, KC_7  ,KC_MS_U, KC_9  ,_______,KC_PLUS,
+     APL    ,KC_HOME,KC_MS_L,KC_MS_D,KC_MS_R,KC_LPRN,                        KC_RPRN,KC_MS_L,KC_MS_D,KC_MS_R,KC_MINS,KC_PIPE,
+     QWERT  ,KC_WH_L,KC_WH_R,KC_WH_U,KC_WH_D,_______,                        _______, KC_1  , KC_2  , KC_3  ,KC_EQL ,KC_UNDS,
+                     _______,KC_WH_D,                                                         KC_0  , KC_DOT,
+                                             KC_BTN2,KC_BTN1,            _______,_______,
+                                             _______,_______,            _______,_______,
+                                             QWERT  ,_______,            _______, QWERT
+  ),
+
+  [_RAISE] = LAYOUT_6x6(
+
+       KC_F12 , KC_F1 , KC_F2 , KC_F3 , KC_F4 , KC_F5 ,                        KC_F6  , KC_F7 , KC_F8 , KC_F9 ,KC_F10 ,KC_F11 ,
+       _______,_______,_______,_______,_______,KC_LBRC,                        KC_RBRC,_______,KC_NLCK,KC_INS ,KC_SLCK,KC_MUTE,
+       _______,KC_LEFT,KC_UP  ,KC_DOWN,KC_RGHT,KC_LPRN,                        KC_RPRN,KC_MPRV,KC_MPLY,KC_MNXT,_______,KC_VOLU,
+       _______,_______,_______,_______,_______,_______,                        _______,_______,_______,_______,_______,KC_VOLD,
+       _______,_______,_______,_______,_______,_______,                        _______,_______,_______,_______,_______,_______,
+                       _______,_______,                                                        KC_EQL ,_______,
+                                               _______,_______,            _______,_______,
+                                               _______,_______,            _______,_______,
+                                               QWERT  ,_______,            _______,_______
+  ),
+
+};

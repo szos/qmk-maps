@@ -1,0 +1,801 @@
+#include QMK_KEYBOARD_H
+#include "unicode.h"
+
+extern keymap_config_t keymap_config;
+
+#define _DVORAK 0
+#define _SYMS 1
+#define _RAISE 2
+#define _APL 3
+#define _APL_SHIFT 4
+#define _LISP 5
+#define _LSYMS 6
+#define _RSYMS 7
+
+#define DVORAK TO(_DVORAK)
+#define SYMBOLS TO(_SYMS)
+#define RAISE MO(_RAISE)
+#define APL TO(_APL)
+#define GO_APL TO(_APL)
+#define MOUSE MO(_LSYMS)
+#define NUMPAD MO(_RSYMS)
+
+void matrix_init_user(void) {
+  set_unicode_input_mode(UC_LNX);
+};
+
+#define shiftp get_mods() == MOD_BIT(KC_LSHIFT) || get_mods() == MOD_BIT(KC_RSHIFT)
+
+#define laltp get_mods() == MOD_BIT(KC_LALT)
+#define raltp get_mods() == MOD_BIT(KC_RALT)
+#define altp get_mods() == MOD_BIT(KC_RALT) || get_mods() == MOD_BIT(KC_LALT)
+
+#define ctlp get_mods() == MOD_BIT(KC_LCTL) || get_mods() == MOD_BIT(KC_RCTL)
+
+
+void process_unicode_key_with_mods(int key, int sft_key, int lalt_key,
+				   int ralt_key, int ctl_key, keyrecord_t *record)
+{
+  if ((shiftp) && !(altp || ctlp)){
+    process_unicode((sft_key|QK_UNICODE), record);
+  } else if (laltp && !(raltp || ctlp || shiftp)) {
+    process_unicode((lalt_key|QK_UNICODE), record);
+  } else if (raltp && !(laltp || ctlp || shiftp)) {
+    process_unicode((ralt_key|QK_UNICODE), record);
+  } else if ((ctlp) && !(altp || shiftp)) {
+    process_unicode((ctl_key|QK_UNICODE), record);
+  } else {
+    process_unicode((key|QK_UNICODE), record);
+  }
+}
+
+void process_unicode_key(int key,int shift_key, keyrecord_t *record)
+{
+  if (get_mods() == MOD_BIT(KC_LSHIFT) || get_mods() == MOD_BIT(KC_RSHIFT)) {
+    process_unicode((shift_key|QK_UNICODE), record);
+    return;
+  }
+  process_unicode((key|QK_UNICODE), record);
+  return;
+}
+
+void process_1_unicode_key(int key, keyrecord_t *record)
+{
+  process_unicode((key|QK_UNICODE), record);
+  return;
+}
+
+typedef struct {
+  bool is_press_action;
+  int state;
+} tap;
+
+enum {
+//single S, double D, triple T, etc      
+  S_TAP = 1,
+  S_HOLD = 2,
+  D_TAP = 3,
+  D_HOLD = 4,
+  D_S_TAP = 5,
+  T_TAP = 6,
+  T_HOLD = 7
+};
+
+enum {
+      TAB_SHIFT_PFIX = 0,
+      DANCE_2,
+      LALT_PP,
+      LA_PC,
+      LCTL_BSPC
+};
+
+int cur_dance(qk_tap_dance_state_t *state);
+void x_finished(qk_tap_dance_state_t *state, void *user_data);
+void x_reset(qk_tap_dance_state_t *state, void *user_data);
+
+int cur_dance(qk_tap_dance_state_t *state) {
+  if (state->count == 1){
+    if (state->interrupted || !state->pressed)
+      return S_TAP;
+    else return S_HOLD;
+  } else if (state->count == 2) {
+    if (state->interrupted) return D_S_TAP;
+    else if (state->pressed) return D_HOLD;
+    else return D_TAP;
+  }
+  if (state->count == 3){
+    if (state->interrupted || !state->pressed) return T_TAP;
+    else return T_HOLD;
+  }
+  else return 8; // magic number, when doing more presses, dont use 8.
+}
+
+static tap xtap_state = {
+  .is_press_action = true,
+  .state = 0
+};
+
+void lctl_bsp_finished(qk_tap_dance_state_t *state, void *user_data) {
+  xtap_state.state = cur_dance(state);
+  switch (xtap_state.state) {
+  case S_TAP: register_code(KC_BSPC); break;
+  case S_HOLD: register_code(KC_LCTL); break;
+  case D_HOLD: register_code(KC_BSPC);
+  }
+}
+
+void lctl_bsp_reset(qk_tap_dance_state_t *state, void *user_data) {
+  switch (xtap_state.state) {
+  case S_TAP: unregister_code(KC_BSPC); break;
+  case S_HOLD: unregister_code(KC_LCTL); break;
+  case D_HOLD: unregister_code(KC_BSPC);
+  }
+  xtap_state.state = 0;
+}
+
+int layer_dance_tracker_s = 0;
+int layer_dance_tracker_d = 0;
+
+void layer_dance_reset(qk_tap_dance_state_t *state, void *user_data)
+{
+  switch (xtap_state.state){
+  case S_HOLD: layer_off(_LSYMS);
+  case D_HOLD: layer_off(_RSYMS);
+  }
+  xtap_state.state = 0;
+}
+
+void layer_dance_finished(qk_tap_dance_state_t *state, void *user_data)
+{
+  xtap_state.state = cur_dance(state);
+  switch (xtap_state.state) {
+  case S_TAP:
+    if (layer_dance_tracker_s == 0) {
+      layer_dance_tracker_s = 1;
+      layer_on(_APL);
+      // TO(_APL);
+      break ;
+    } else {
+      layer_dance_tracker_s = 0;
+      layer_off(_APL);
+      break ;
+    }    
+  case S_HOLD: layer_on(_LSYMS) ; break ;
+  case D_TAP:
+    if (layer_dance_tracker_d == 0) {
+      layer_on(_SYMS);
+      layer_dance_tracker_d = 1;
+      break;
+    } else {
+      layer_off(_SYMS);
+      layer_dance_tracker_d = 0;
+      break;
+    }
+  case D_HOLD: layer_on(_RSYMS) ; break ;
+      //case T_TAP: 
+      //case T_HOLD:
+  }
+}
+
+void po_finished(qk_tap_dance_state_t *state, void *user_data) {
+  xtap_state.state = cur_dance(state);
+  switch (xtap_state.state) {
+  case S_TAP: register_code16(LSFT(KC_8)); break;
+  case S_HOLD: register_code(KC_LALT); break;
+  case D_TAP: register_code16(LALT(KC_SPC)); break;
+  case D_HOLD: register_code16(LSFT(KC_8));
+  }
+}
+
+void po_reset(qk_tap_dance_state_t *state, void *user_data) {
+  switch (xtap_state.state) {
+  case S_TAP: unregister_code16(LSFT(KC_8)); break;
+  case S_HOLD: unregister_code(KC_LALT); break;
+  case D_TAP: unregister_code16(LALT(KC_SPC)); break;
+  case D_HOLD: unregister_code16(LSFT(KC_8)); 
+  }
+  xtap_state.state = 0;
+}
+
+void pc_finished(qk_tap_dance_state_t *state, void *user_data) {
+  xtap_state.state = cur_dance(state);
+  switch (xtap_state.state) {
+  case S_TAP: register_code16(LSFT(KC_9)); break;
+  case S_HOLD: register_code(KC_LALT); break;
+  case D_TAP: register_code16(LALT(KC_SPC)); break;
+  case D_HOLD: register_code16(LSFT(KC_9));
+  }
+}
+
+void pc_reset(qk_tap_dance_state_t *state, void *user_data) {
+  switch (xtap_state.state) {
+  case S_TAP: unregister_code16(LSFT(KC_9)); break;
+  case S_HOLD: unregister_code(KC_LALT); break;
+  case D_TAP: unregister_code16(LALT(KC_SPC)); break;
+  case D_HOLD: unregister_code16(LSFT(KC_9)); 
+  }
+  xtap_state.state = 0;
+}
+
+void x_finished (qk_tap_dance_state_t *state, void *user_data) {
+  /* example of sending x on a single tap, LCTL on a tap and hold, 
+     ESC on double tap, LALT on double tap and hold, and double taps 
+     x if you double tap and dont hold. 
+   */
+  xtap_state.state = cur_dance(state);
+  switch (xtap_state.state) {
+  case S_TAP: register_code(KC_X); break;
+  case S_HOLD: register_code(KC_LCTRL); break;
+  case D_TAP: register_code16(LSFT(KC_X)); break;
+  case D_HOLD: register_code(KC_LALT); break;
+  case D_S_TAP: register_code(KC_X); unregister_code(KC_X); register_code(KC_X);
+    //Last case is for fast typing. Assuming your key is `f`:
+    //For example, when typing the word `buffer`, and you want to make sure that you send `ff` and not `Esc`.
+    //In order to type `ff` when typing fast, the next character will have to be hit within the `TAPPING_TERM`, which by default is 200ms.
+  }
+}
+
+void x_reset (qk_tap_dance_state_t *state, void *user_data) {
+  switch (xtap_state.state) {
+    case S_TAP: unregister_code(KC_X); break;
+    case S_HOLD: unregister_code(KC_LCTRL); break;
+    case D_TAP: unregister_code16(LSFT(KC_X)); break;
+    case D_HOLD: unregister_code(KC_LALT);
+    case D_S_TAP: unregister_code(KC_X);
+  }
+  xtap_state.state = 0;
+}
+
+qk_tap_dance_action_t tap_dance_actions[] = {
+  [DANCE_2] = ACTION_TAP_DANCE_FN_ADVANCED(NULL, layer_dance_finished, layer_dance_reset),
+  [LALT_PP] = ACTION_TAP_DANCE_FN_ADVANCED(NULL, po_finished, po_reset),
+  [LA_PC] = ACTION_TAP_DANCE_FN_ADVANCED(NULL, pc_finished, pc_reset), 
+  [LCTL_BSPC] = ACTION_TAP_DANCE_FN_ADVANCED(NULL, lctl_bsp_finished, lctl_bsp_reset)
+};
+
+enum my_keycodes {
+  TESTER = SAFE_RANGE,
+  U_RBC,
+  U_LBC,
+  R_ARW,
+  L_ARW,
+  // unicode keys
+  DIA_I,
+  APL_1,
+  
+  APL_2,
+  APL_3,
+  APL_4,
+  APL_5,
+  APL_6,
+  APL_7,
+  APL_8,
+  APL_9,
+  APL_0,
+  APL_DSH,
+  APL_EQL,
+
+  APL_Q,
+  APL_W,
+  APL_E,
+  APL_R,
+  APL_T,
+  APL_Y,
+  APL_U,
+  APL_I,
+  APL_O,
+  APL_P,
+  APL_LBC,
+  APL_RBC,
+
+  APL_A,
+  APL_S,
+  APL_D,
+  APL_F,
+  APL_G,
+  APL_H,
+  APL_J,
+  APL_K,
+  APL_L,
+  APL_CLN,
+  APL_QOT, //apl symbols on quote
+  APL_QQT, //apl symbols on quasiquote
+
+  APL_LGS, //apl less greater sign
+  APL_Z,
+  APL_X,
+  APL_C,
+  APL_V,
+  APL_B,
+  APL_N,
+  APL_M,
+  APL_CMA,
+  APL_DOT,
+  APL_FSH,
+  
+  // regular keys
+  LPAREN,
+  RPAREN,
+  LSFT_PO,
+  RSFT_PC,
+  LALT_PO,
+  LALT_PC,
+  LSFT_BSP, /* swap bsp and tab on LSFT and LCTL */
+  LSFT_TAB,
+  LCTL_TAB,
+  LCTL_BSP,
+  RALT_DEL,
+  RALT_LBC,
+  RALT_RBC,
+  LGUI_LBK,
+  RGUI_RBK,
+  RCTL_ENT,
+  LS_TB_PX
+};
+
+void tap_key(uint16_t keycode){
+  register_code(keycode);
+  unregister_code(keycode);
+};
+
+bool process_record_user(uint16_t keycode, keyrecord_t *record){
+  switch(keycode) {
+  case U_RBC:
+    if (record->event.pressed){
+      process_unicode_key_with_mods(U_RIGHT_BRACE, U_RIGHT_CURLY, U_RIGHT_PAREN,
+				    U_RIGHT_PAREN, U_RIGHT_PAREN, record);
+    }
+    return false;
+  case L_ARW:
+    if (record->event.pressed){
+      process_unicode_key(U_LEFT_LESS_THAN, U_SECTION, record);
+    }
+    return false;
+  case R_ARW:
+    if (record->event.pressed){
+      process_unicode_key(U_RIGHT_GREATER_THAN, U_PIPE, record);
+    }
+    return false;
+  case TESTER:
+    if (record->event.pressed){
+      process_unicode((0x0028|QK_UNICODE), record);
+    } 
+    return false;
+    
+  case DIA_I:
+    if (record->event.pressed) {
+      process_unicode_key(0x00a8, 0x2336, record);
+    }
+    return false;
+  case APL_2:
+    if (record->event.pressed){
+      process_unicode_key(U_MACRON, U_APL_FS_DOWN_TILDE, record);
+    }
+    return false;
+  case APL_3:
+    if (record->event.pressed){
+      process_unicode_key(U_LESS, U_APL_FS_DOWN_STILE, record);
+    }
+    return false;
+  case APL_4:
+    if (record->event.pressed){
+      process_unicode_key(U_LESS_EQUAL, U_APL_FS_DELTA_STILE, record);
+    }
+    return false;
+  case APL_5:
+    if (record->event.pressed){
+      process_unicode_key(U_EQUAL, U_APL_FS_CIRCLE_STILE, record);
+    }
+    return false;
+  case APL_6:
+    if (record->event.pressed){
+      process_unicode_key(U_GREATER_EQUAL, U_APL_FS_CIRCLE_BACKSLASH, record);
+    }
+    return false;
+  case APL_7:
+    if (record->event.pressed){
+      process_unicode_key(U_GREATER, U_CIRCLE_MINUS, record);
+    }
+    return false;
+  case APL_8:
+    if (record->event.pressed){
+      process_unicode_key(U_NOT_EQUAL, U_APL_FS_CIRCLE_STAR, record);
+    }
+    return false;
+  case APL_9:
+    if (record->event.pressed){
+      process_unicode_key(U_LOG_OR, U_APL_FS_DOWN_CARET, record);
+    }
+    return false;
+  case APL_0:
+    if (record->event.pressed){
+      process_unicode_key(U_LOG_AND, U_APL_FS_UP_CARET, record);
+    }
+    return false;
+  case APL_DSH:
+    if (record->event.pressed){
+      process_unicode_key(U_MULTIPLICATION, U_EXCLAM, record);
+    }
+    return false;
+  case APL_EQL:
+    if (record->event.pressed){
+      process_unicode_key(U_DIVIDE, U_APL_FS_QUAD_DIVIDE, record);
+    }
+    return false;
+  case APL_Q:
+    if (record->event.pressed){
+      process_unicode_key(U_QUESTION_MARK, U_QUESTION_MARK, record);
+    }
+    return false;
+  case APL_W:
+    if (record->event.pressed){
+      process_unicode_key(U_APL_OMEGA, U_APL_OMEGA, record);
+    }
+    return false;
+  case APL_E:
+    if (record->event.pressed){
+      process_unicode_key(U_EPSILON, U_EPSILON_BAR, record);
+    }
+    return false;
+  case APL_R:
+    if (record->event.pressed){
+      process_unicode_key(U_APL_RHO, U_APL_RHO, record);
+    }
+    return false;
+  case APL_T:
+    if (record->event.pressed){
+      process_unicode_key(U_TILDE, U_APL_FS_ZILDE, record);
+    }
+    return false;
+  case APL_Y:
+    if (record->event.pressed){
+      process_unicode_key(U_UP_ARROW, U_APL_FS_QUAD_UP_ARROW, record);
+    }
+    return false;
+  case APL_U:
+    if (record->event.pressed){
+      process_unicode_key(U_DOWN_ARROW, U_APL_FS_QUAD_DOWN_ARROW, record);
+    }
+    return false;
+  case APL_I:
+    if (record->event.pressed){
+      process_unicode_key(U_APL_IOTA, U_APL_IOTA_BAR, record);
+    }
+    return false;
+  case APL_O:
+    if (record->event.pressed){
+      process_unicode_key(U_APL_CIRCLE, U_APL_QUAD, record);
+    }
+    return false;
+  case APL_P:
+    if (record->event.pressed){
+      process_unicode_key(U_APL_STAR, U_APL_STAR_DIAERESIS, record);
+    }
+    return false;
+  case APL_LBC:
+    if (record->event.pressed){
+      process_unicode_key(U_LEFT_ARROW, U_APL_FS_QUAD_LEFT_ARROW, record);
+    }
+    return false;
+  case APL_RBC:
+    if (record->event.pressed){
+      process_unicode_key(U_RIGHT_ARROW, U_APL_FS_QUAD_RIGHT_ARROW, record);
+    }
+    return false;
+    // new row (a)
+  case APL_A:
+    if (record->event.pressed){
+      process_unicode_key(U_APL_FS_ALPHA, U_APL_FS_ALPHA_BAR, record);
+    }
+    return false;
+  case APL_S:
+    if (record->event.pressed){
+      process_1_unicode_key(U_LEFT_CEILING, record);
+    }
+    return false;
+  case APL_D:
+    if (record->event.pressed){
+      process_1_unicode_key(U_LEFT_FLOOR, record);
+    }
+    return false;
+  case APL_F:
+    if (record->event.pressed){
+      process_1_unicode_key(U_APL_UNDERBAR, record);
+    }
+    return false;
+  case APL_G:
+    if (record->event.pressed){
+
+      process_1_unicode_key(U_APL_NABLA, record);
+    }
+    return false;
+  case APL_H:
+    if (record->event.pressed){
+      process_unicode_key(U_APL_DELTA, U_APL_FS_DELTA_UNDERBAR, record);
+    }
+    return false;
+  case APL_J:
+    if (record->event.pressed){
+      process_unicode_key(U_APL_RING_OPERATOR, U_APL_FS_CIRCLE_DIAERESIS, record);
+    }
+    return false;
+  case APL_K:
+    if (record->event.pressed){
+      process_unicode_key(U_APOSTROPHE, U_APL_FS_QUAD_EQUAL, record);
+    }
+    return false;
+  case APL_L:
+    if (record->event.pressed){
+      process_unicode_key(U_APL_FS_QUAD, U_APL_FS_SQUISH_QUAD, record);
+    }
+    return false;
+  case APL_CLN:
+    if (record->event.pressed){
+      process_unicode_key(U_APL_FS_DOWN_TACK_JOT, U_APL_IDENTICAL_TO, record);
+    }
+    return false;
+  case APL_QOT:
+    if (record->event.pressed){
+      process_unicode_key(U_APL_FS_UP_TACK_JOT, U_APL_NOT_IDENTICAL_TO, record);
+    }
+    return false;
+  case APL_QQT:
+    if (record->event.pressed){
+      process_unicode_key(U_DIAMOND_OPERATOR, U_APL_FS_QUAD_DIAMOND, record);
+    }
+    return false;
+    // new row
+  case APL_LGS:
+    if (record->event.pressed){
+      process_unicode_key(U_APL_RIGHT_TACK, U_APL_LEFT_TACK, record);
+    }
+    return false;
+  case APL_Z:
+    if (record->event.pressed){
+      process_unicode_key(U_SUBSET_OF, U_SUBSET_OF_BAR, record);
+    }
+    return false;
+  case APL_X:
+    if (record->event.pressed){
+      process_1_unicode_key(U_SUPERSET_OF, record);
+    }
+    return false;
+  case APL_C:
+    if (record->event.pressed){
+      process_1_unicode_key(U_INTERSECTION, record);
+    }
+    return false;
+  case APL_V:
+    if (record->event.pressed){
+      process_1_unicode_key(U_UNION, record);
+    }
+    return false;
+  case APL_B:
+    if (record->event.pressed){
+      process_1_unicode_key(U_APL_DOWN_TACK, record);
+    }
+    return false;
+  case APL_N:
+    if (record->event.pressed){
+      process_1_unicode_key(U_APL_UP_TACK, record);
+    }
+    return false;
+  case APL_M:
+    if (record->event.pressed){
+      process_1_unicode_key(U_APL_DIVIDEES, record);
+    }
+    return false;
+  case APL_CMA:
+    if (record->event.pressed){
+      process_unicode_key(U_APL_FS_COMMENT, U_APL_FS_COMMA_BAR, record);
+    }
+    return false;
+  case APL_DOT:
+    if (record->event.pressed){
+      process_unicode_key(U_APL_FS_BACKSLASH_BAR, U_APL_FS_DELTA_UNDERBAR, record);
+    }
+    return false;
+  case APL_FSH:
+    if (record->event.pressed){
+      process_unicode_key(U_APL_FS_SLASH_BAR, U_APL_FS_QUAD_COLON, record);
+    }
+    return false;
+        
+  case LSFT_PO:
+    perform_space_cadet(record, KC_LSFT, KC_LSFT, KC_8);
+    return false;
+  case RSFT_PC:
+    perform_space_cadet(record, KC_RSFT, KC_RSFT, KC_9);
+    return false;
+  case LALT_PO:
+    perform_space_cadet(record, KC_LALT, KC_LSFT, KC_8);
+    return false;
+  case LALT_PC:
+    perform_space_cadet(record, KC_LALT, KC_LSFT, KC_9);
+    return false;
+  case LSFT_BSP:
+    perform_space_cadet(record, KC_LSFT, KC_TRNS, KC_BSPC);
+    return false;
+  case LSFT_TAB:
+    perform_space_cadet(record, KC_LSFT, KC_TRNS, KC_TAB);
+    return false;
+  case LCTL_TAB:
+    perform_space_cadet(record, KC_LCTL, KC_TRNS, KC_TAB);
+    return false;
+  case LCTL_BSP:
+    perform_space_cadet(record, KC_LCTL, KC_TRNS, KC_BSPC);
+    return false;
+  case RALT_DEL:
+    perform_space_cadet(record, KC_RALT, KC_TRNS, KC_DEL);
+    return false;
+  case RALT_LBC:
+    perform_space_cadet(record, KC_RALT, KC_RALT, KC_7);
+    return false;
+  case RALT_RBC:
+    perform_space_cadet(record, KC_RALT, KC_RALT, KC_0);
+    return false;
+  case LGUI_LBK:
+    perform_space_cadet(record, KC_LGUI, KC_RALT, KC_8);
+    return false;
+  case RGUI_RBK:
+    perform_space_cadet(record, KC_RGUI, KC_RALT, KC_9);
+    return false;
+  case RCTL_ENT:
+    perform_space_cadet(record, KC_RCTL, KC_TRNS, KC_ENT);
+    return false;
+  case LS_TB_PX:
+    // perform_space_cadet(record, KC_LSFT, KC_TRNS, TAP_DANCE_1);
+    return false;
+  case LPAREN:
+    if (record->event.pressed){
+      process_unicode((0x0028|QK_UNICODE), record);
+    }
+    return false;
+  case RPAREN:
+    if (record->event.pressed){
+      process_unicode((0x0029|QK_UNICODE), record);
+      return true;
+    }
+    return false;
+  default:
+    return true;
+  }
+};
+
+#define RALT_RET RALT_T(KC_ENT)
+#define LALT_RET LALT_T(KC_ENT)
+#define F_SFT SFT_T(KC_F)
+#define J_SFT SFT_T(KC_J)
+#define SPC_CTL RCTL_T(KC_SPC)
+#define DEL_CTL LCTL_T(KC_DEL)
+#define SPC_SFT SFT_T(KC_SPC)
+
+// #define PC_CTL 
+
+#define RALT_PO RALT_T(KC_LPRN)
+#define RALT_PC RALT_T(KC_RPRN)
+#define RALT_TB RALT_T(KC_TAB)
+
+#define RCTL_RET RCTL_T(KC_ENT)
+#define RCTL_BKS RCTL_T(KC_BSPC)
+#define RSFT_SPC SFT_T(KC_SPC)
+#define LCTL_BKS LCTL_T(KC_BSPC)
+#define RALT_BKS RALT_T(KC_BSPC)
+#define LALT_BKS LALT_T(KC_BSPC)
+
+#define SFT_PO_U SFT_T(LPAREN)
+#define LCTL_PC_U LCTL_T(RPAREN)
+
+#define SFT_PO_U_L SFT_T(UC(0x3F))
+#define LCTL_PC_U_L LCTL_T(UC(0x2A))
+
+#define TB_SFT SFT_T(KC_TAB)
+#define BS_SFT SFT_T(KC_BSPC)
+
+#define D_LYR LT(_SYMS, KC_D)
+#define K_LYR LT(_SYMS, KC_K)
+
+// #define PERMISSIVE_HOLD
+
+#define TAPPING_TERM 70
+
+/*
+  ok we want to set up the right hand as, from the top of the thumb cluster down,
+  space/shift, enter/control, backspace/alt-meta. 
+  on the left hand we want, from top of thumb cluster down,
+  tap-dance shift/lparen/rparen, rparen/control, alt/enter, altgreen/tab
+ */
+
+const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
+
+  [_DVORAK] = LAYOUT_6x6(
+
+     KC_ESC , KC_F2 , KC_F3 , KC_F4 , KC_F5 , KC_F6 ,                         KC_F7 , KC_F8 , KC_F9 ,KC_F10 ,KC_F11 ,KC_F12 ,
+     KC_GRV , KC_1  , KC_2  , KC_3  , KC_4  , KC_5  ,                         KC_6  , KC_7  , KC_8  , KC_9  , KC_0  ,KC_GRV ,
+     KC_GRV ,KC_LBRC,KC_COMM,KC_DOT , KC_P  , KC_Y  ,                         KC_F  , KC_G  , KC_C  , KC_R  , KC_L  ,KC_BSLASH,
+     KC_SCLN, KC_A  , KC_O  , KC_E  , KC_U  , KC_I  ,                         KC_D  , KC_H  , KC_T  , KC_N  , KC_S  ,KC_SLSH,
+     MOUSE  ,KC_QUOT, KC_Q  , KC_J  , KC_K  , KC_X  ,                         KC_B  , KC_M  , KC_W  , KC_V  , KC_Z  ,KC_RBRACKET,
+                     KC_NUBS,KC_SLSH,                                                        KC_MINS,KC_EQUAL,
+                                    LSFT_TAB,LCTL_BKS,                      RCTL_ENT,RSFT_SPC,
+                                    RALT_LBC,LALT_PO,                        LALT_PC,RALT_RBC,
+                                 TD(DANCE_2),LGUI_LBK,                      RGUI_RBK, SYMBOLS
+     /*
+       Ok, so, what we want is a tap dance on the left hand thumb cluster where  
+       tap; go to some layer x
+       press+hold; momentary to layer y
+       tap tap; go layer a 
+       tap press+hold; momentary layer b
+       tap tap tap; go to layer i
+       tap tap press+hold; momentary layer j
+      */
+  ),
+  
+  [_LSYMS] = LAYOUT_6x6(
+     _______,_______,_______,_______,_______,_______,                       _______,_______,_______,_______,_______,_______,
+     _______,_______,_______,_______,_______,_______,                       _______,_______,_______,_______,_______,_______,
+     _______,_______,_______,_______,_______,_______,                       _______,_______,KC_MS_U,_______,_______,_______,
+     _______,_______,_______,_______,_______,_______,                       _______,KC_MS_L,KC_MS_D,KC_MS_R,_______,_______,
+     _______,_______,_______,_______,_______,_______,                       _______,KC_WH_D,KC_WH_U,KC_WH_R,KC_WH_L,_______,
+                     _______,_______,                                                       _______,_______,
+                                     _______,_______,                       KC_BTN1,KC_BTN2,
+                                     _______,_______,                       _______,_______,
+                                     _______,_______,                       _______,_______
+    ),
+
+    [_RSYMS] = LAYOUT_6x6(
+     _______,_______,_______,_______,_______,_______,                       _______,_______,_______,_______,_______,_______,
+     _______,_______,_______,_______,_______,_______,                       _______,_______,_______,_______,_______,_______,
+     _______,_______,_______,_______,_______,_______,                       _______, KC_7  , KC_8  , KC_9  ,_______,_______,
+     _______,_______,_______,_______,_______,_______,                       _______, KC_4  , KC_5  , KC_6  ,_______,_______,
+     _______,_______,_______,_______,_______,_______,                       KC_BSPC, KC_1  , KC_2  , KC_3  ,_______,_______,
+                     _______,_______,                                                        KC_0  , KC_DOT,
+                                     _______,_______,                       _______,_______,
+                                     _______,_______,                       _______,_______,
+                                     _______,_______,                       _______,_______
+			),
+  
+  [_SYMS] = LAYOUT_6x6(
+			
+     RESET  , KC_F2 , KC_F3 , KC_F4 , KC_F5 , KC_F6 ,                        KC_F7 , KC_F8 , KC_F9 ,KC_F10 ,KC_F11 , RESET ,
+     KC_TILD,KC_EXLM, KC_AT ,KC_HASH,KC_DLR ,KC_PERC,                        KC_CIRC,KC_AMPR,KC_ASTR,KC_LPRN,KC_RPRN,KC_DEL,
+     _______,_______,_______,KC_MS_U,_______,KC_LBRC,                        KC_RBRC, KC_7  ,KC_MS_U, KC_9  ,_______,KC_PLUS,
+     APL    ,KC_HOME,KC_MS_L,KC_MS_D,KC_MS_R,KC_LPRN,                        KC_RPRN,KC_MS_L,KC_MS_D,KC_MS_R,KC_MINS,KC_PIPE,
+     DVORAK ,KC_WH_L,KC_WH_R,KC_WH_U,KC_WH_D,_______,                        _______, KC_1  , KC_2  , KC_3  ,KC_EQL ,KC_UNDS,
+                     _______,KC_WH_D,                                                         KC_0  , KC_DOT,
+                                             KC_BTN2,KC_BTN1,            _______,_______,
+                                             _______,_______,            _______,_______,
+                                             DVORAK ,_______,            _______, DVORAK
+  ),
+
+  [_APL] = LAYOUT_6x6(
+
+       KC_ESC , KC_1  , KC_2  , KC_3  , KC_4  , KC_5  ,                         KC_6  , KC_7  , KC_8  , KC_9  , KC_0  ,_______,
+       APL_QQT, DIA_I , APL_2 , APL_3 , APL_4 , APL_5 ,                         APL_6 , APL_7 , APL_8 , APL_9 , APL_0 ,APL_DSH,
+       _______, APL_Q , APL_W , APL_E , APL_R , APL_T ,                         APL_Y , APL_U , APL_I , APL_O , APL_P ,APL_EQL,
+       DVORAK , APL_A , APL_S , APL_D , APL_F , APL_G ,                         APL_H , APL_J , APL_K , APL_L ,APL_CLN,APL_QOT,
+       APL_LGS, APL_Z , APL_X , APL_C , APL_V , APL_B ,                         APL_N , APL_M ,APL_CMA,APL_DOT,APL_FSH,_______,
+                       _______,_______,                                                        APL_LBC,APL_RBC,
+                                               _______,_______,            _______,_______,
+                                               _______,_______,            _______,_______,
+                                               DVORAK ,_______,            _______,_______		      
+		      
+		      ),
+/*  [_LISP] = LAYOUT_6x6(
+     KC_F1  , KC_F2 , KC_F3 , KC_F4 , KC_F5 , KC_F6 ,                         KC_F7 , KC_F8 , KC_F9 ,KC_F10 ,KC_F11 ,KC_F12 ,
+     
+		       ),*/
+  
+  [_RAISE] = LAYOUT_6x6(
+
+       KC_F12 , KC_F1 , KC_F2 , KC_F3 , KC_F4 , KC_F5 ,                        KC_F6  , KC_F7 , KC_F8 , KC_F9 ,KC_F10 ,KC_F11 ,
+       _______,_______,_______,_______,_______,KC_LBRC,                        KC_RBRC,_______,KC_NLCK,KC_INS ,KC_SLCK,KC_MUTE,
+       _______,KC_LEFT,KC_UP  ,KC_DOWN,KC_RGHT,KC_LPRN,                        KC_RPRN,KC_MPRV,KC_MPLY,KC_MNXT,_______,KC_VOLU,
+       _______,_______,_______,_______,_______,_______,                        _______,_______,_______,_______,_______,KC_VOLD,
+       _______,_______,_______,_______,_______,_______,                        _______,_______,_______,_______,_______,_______,
+                       _______,_______,                                                        KC_EQL ,_______,
+                                               _______,_______,            _______,_______,
+                                               _______,_______,            _______,_______,
+                                               DVORAK ,_______,            _______,_______
+  ),
+
+};
